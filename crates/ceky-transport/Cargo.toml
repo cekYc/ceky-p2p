@@ -1,0 +1,20 @@
+[package]
+name = "ceky-transport"
+description = "TCP/UDP transport layer with connection pooling for cekyP2P"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+ceky-protocol.workspace = true
+bytes.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tokio-stream = "0.1"
+futures = "0.3"
+dashmap.workspace = true
+crossbeam.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "macros"] }

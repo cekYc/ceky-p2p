@@ -1,0 +1,16 @@
+[package]
+name = "ceky-protocol"
+description = "Binary wire protocol with zero-copy codec for cekyP2P"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+bytes.workspace = true
+tokio-util.workspace = true
+tokio.workspace = true
+crc32c.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "macros"] }

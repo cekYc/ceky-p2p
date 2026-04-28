@@ -1,0 +1,17 @@
+/target
+Cargo.lock
+*.pdb
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Tools
+.gemini/
+.antigravityignore

@@ -1,0 +1,30 @@
+[package]
+name = "ceky-node"
+description = "Main P2P node binary orchestrating all cekyP2P subsystems"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "ceky-node"
+path = "src/main.rs"
+
+[dependencies]
+ceky-protocol.workspace = true
+ceky-transport.workspace = true
+ceky-crypto.workspace = true
+ceky-dht.workspace = true
+ceky-nat.workspace = true
+tokio.workspace = true
+clap.workspace = true
+serde.workspace = true
+toml.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+dashmap.workspace = true
+mimalloc = { workspace = true, optional = true }
+
+[features]
+default = []
+# Enable mimalloc allocator (requires C compiler — recommended for Linux production)
+custom-allocator = ["dep:mimalloc"]

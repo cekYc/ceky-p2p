@@ -1,0 +1,22 @@
+[package]
+name = "ceky-crypto"
+description = "Zero-trust identity and Noise protocol handshake for cekyP2P"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+ceky-protocol.workspace = true
+bytes.workspace = true
+ed25519-dalek.workspace = true
+x25519-dalek.workspace = true
+chacha20poly1305.workspace = true
+sha2.workspace = true
+rand.workspace = true
+zeroize.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+serde.workspace = true
+toml.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "macros"] }

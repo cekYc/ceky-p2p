@@ -1,0 +1,21 @@
+[package]
+name = "ceky-dht"
+description = "Kademlia DHT with performance-based peer scoring for cekyP2P"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+ceky-protocol.workspace = true
+ceky-crypto.workspace = true
+bytes.workspace = true
+tokio.workspace = true
+dashmap.workspace = true
+sha2.workspace = true
+rand.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+serde.workspace = true
+redb.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "macros"] }
