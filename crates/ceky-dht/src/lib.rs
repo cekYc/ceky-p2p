@@ -20,12 +20,16 @@
 //! └──────────────────────────────────────────┘
 //! ```
 
+pub mod bootstrap;
 pub mod peer_info;
 pub mod routing;
 pub mod operations;
+pub mod supernode;
 
+pub use bootstrap::BootstrapManager;
 pub use peer_info::{PeerInfo, PeerScore, PeerState};
 pub use routing::RoutingTable;
+pub use supernode::SuperNodeManager;
 
 use thiserror::Error;
 
