@@ -351,8 +351,10 @@ mod tests {
             MessageType::Disconnect, MessageType::FindNode, MessageType::FindNodeResp,
             MessageType::Store, MessageType::StoreResp, MessageType::FindValue,
             MessageType::FindValueResp, MessageType::Data, MessageType::DataAck,
-            MessageType::CreditUpdate, MessageType::NatProbe, MessageType::NatProbeResp,
-            MessageType::HolePunch, MessageType::HolePunchResp,
+            MessageType::CreditUpdate, MessageType::FileOffer, MessageType::FileAccept,
+            MessageType::FileReject, MessageType::FileChunk, MessageType::FileChunkAck,
+            MessageType::FileComplete, MessageType::FileCancel, MessageType::NatProbe,
+            MessageType::NatProbeResp, MessageType::HolePunch, MessageType::HolePunchResp,
             MessageType::RelayRequest, MessageType::RelayData,
         ];
 

@@ -15,10 +15,16 @@
 
 pub mod codec;
 pub mod error;
+pub mod transfer;
 pub mod types;
 
 pub use codec::FrameCodec;
 pub use error::ProtocolError;
+pub use transfer::{
+	bitmap_is_missing, bitmap_len, bitmap_set_missing, compute_total_chunks, ChunkAckStatus,
+	FileAccept, FileCancel, FileCancelReason, FileChunk, FileChunkAck, FileComplete, FileOffer,
+	FileReject, FileRejectReason, TransferError, TransferId,
+};
 pub use types::{Flags, Frame, FrameHeader, MessageType};
 
 /// Protocol magic bytes: 0xCE4B ("CEKY" tribute)

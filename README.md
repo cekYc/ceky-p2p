@@ -313,7 +313,7 @@ Options:
 - [x] **Faz 4** — NAT traversal (STUN, hole punch, relay)
 - [x] **Faz 5** — Noise XX handshake, encrypted sessions
 - [x] **Faz 6** — Bootstrap, SuperNode promotion, node binary
-- [ ] **Faz 7** — File transfer protocol (chunked + merkle)
+- [x] **Faz 7** — File transfer protocol (chunked + merkle)
 - [ ] **Faz 8** — Persistent storage (redb) + config system
 - [ ] **Faz 9** — Metrics dashboard + TUI monitoring
 
