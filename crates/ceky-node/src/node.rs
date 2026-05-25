@@ -254,6 +254,19 @@ pub async fn start_node(
                                     warn!("Cannot send file, not connected to peer: {}", target);
                                 }
                             }
+                            api::ApiCommand::SendMessage { target, message } => {
+                                info!(target = %target, "API requested message send");
+                                if let Some(PeerState::Secure { session }) = peer_states.get_mut(&target) {
+                                    if let Ok((enc_nonce, ciphertext)) = session.encrypt(message.as_bytes()) {
+                                        let frame = Frame::new(MessageType::Data, Flags::empty().with_encrypted(), enc_nonce, bytes::Bytes::from(ciphertext));
+                                        if let Err(e) = tcp_transport.send_to(&target, frame) {
+                                            warn!("Failed to send message to {}: {}", target, e);
+                                        }
+                                    }
+                                } else {
+                                    warn!("Cannot send message, secure session not ready for {}", target);
+                                }
+                            }
                         }
                     }
                 }
@@ -376,6 +389,15 @@ pub async fn start_node(
                                                             cred.copy_from_slice(&data[16..20]);
                                                             let credits = u32::from_le_bytes(cred);
                                                             let _ = transfer_manager.handle_credit_update(tid, credits);
+                                                        }
+                                                    }
+                                                    MessageType::Data => {
+                                                        if let Ok(msg_str) = String::from_utf8(data.to_vec()) {
+                                                            let _ = event_loop_api_tx.send(serde_json::json!({
+                                                                "event": "message_received",
+                                                                "peer": peer_addr.to_string(),
+                                                                "message": msg_str
+                                                            }));
                                                         }
                                                     }
                                                     _ => {

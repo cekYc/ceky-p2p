@@ -26,6 +26,10 @@ pub enum ApiCommand {
         target: SocketAddr,
         file_path: PathBuf,
     },
+    SendMessage {
+        target: SocketAddr,
+        message: String,
+    },
 }
 
 /// Shared state for all API endpoints.
