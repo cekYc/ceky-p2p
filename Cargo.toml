@@ -6,7 +6,7 @@ members = [
     "crates/ceky-crypto",
     "crates/ceky-dht",
     "crates/ceky-nat",
-    "crates/ceky-node",
+    "crates/ceky-node", "crates/ceky-transfer", "crates/ceky-telemetry",
 ]
 
 [workspace.package]

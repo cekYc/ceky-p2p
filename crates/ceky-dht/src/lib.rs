@@ -25,11 +25,13 @@ pub mod peer_info;
 pub mod routing;
 pub mod operations;
 pub mod supernode;
+pub mod storage;
 
 pub use bootstrap::BootstrapManager;
 pub use peer_info::{PeerInfo, PeerScore, PeerState};
 pub use routing::RoutingTable;
 pub use supernode::SuperNodeManager;
+pub use storage::{PersistentStore, StoredEntry};
 
 use thiserror::Error;
 

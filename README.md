@@ -314,8 +314,8 @@ Options:
 - [x] **Faz 5** — Noise XX handshake, encrypted sessions
 - [x] **Faz 6** — Bootstrap, SuperNode promotion, node binary
 - [x] **Faz 7** — File transfer protocol (chunked + merkle)
-- [ ] **Faz 8** — Persistent storage (redb) + config system
-- [ ] **Faz 9** — Metrics dashboard + TUI monitoring
+- [x] **Faz 8** — Persistent storage (redb) + config system
+- [x] **Faz 9** — Metrics dashboard + TUI monitoring
 
 ## 📜 License
 

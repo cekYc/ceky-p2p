@@ -1,0 +1,18 @@
+[package]
+name = "ceky-telemetry"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+chrono = "0.4.44"
+crossbeam.workspace = true
+crossterm = "0.29.0"
+ratatui = "0.30.0"
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+tracing-core = "0.1.36"
+tracing-subscriber.workspace = true

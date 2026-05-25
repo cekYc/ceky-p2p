@@ -23,6 +23,12 @@ tracing-subscriber.workspace = true
 anyhow.workspace = true
 dashmap.workspace = true
 mimalloc = { workspace = true, optional = true }
+bytes.workspace = true
+ceky-transfer = { version = "0.1.0", path = "../ceky-transfer" }
+ceky-telemetry = { version = "0.1.0", path = "../ceky-telemetry" }
+crossbeam.workspace = true
+tokio-util.workspace = true
+hex = "0.4.3"
 
 [features]
 default = []

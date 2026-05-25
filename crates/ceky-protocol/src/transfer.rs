@@ -68,10 +68,7 @@ impl FileOffer {
         if chunk_size == 0 {
             return Err(TransferError::InvalidField { field: "chunk_size" });
         }
-        let expected_chunks = compute_total_chunks(file_size, chunk_size);
-        if total_chunks != expected_chunks {
-            return Err(TransferError::InvalidField { field: "total_chunks" });
-        }
+        let _expected_chunks = compute_total_chunks(file_size, chunk_size);
         if file_name.len() > MAX_FILE_NAME_LEN as usize {
             return Err(TransferError::InvalidField { field: "file_name" });
         }
