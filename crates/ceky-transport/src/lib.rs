@@ -19,6 +19,9 @@ pub mod pool;
 pub mod tcp;
 pub mod udp;
 
+#[cfg(feature = "chaos")]
+pub mod chaos;
+
 use ceky_protocol::Frame;
 use std::net::SocketAddr;
 use thiserror::Error;

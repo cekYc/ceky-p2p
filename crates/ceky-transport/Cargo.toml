@@ -18,3 +18,11 @@ tracing.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros"] }
+
+[dependencies.rand]
+workspace = true
+optional = true
+
+[features]
+default = []
+chaos = ["dep:rand"]

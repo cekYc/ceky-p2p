@@ -163,7 +163,10 @@ impl TcpTransport {
         // Disable Nagle's algorithm for low latency
         let _ = stream.set_nodelay(true);
 
-        let (reader, writer) = stream.into_split();
+        #[cfg(feature = "chaos")]
+        let stream = crate::chaos::ChaosStream::new(stream);
+
+        let (reader, writer) = tokio::io::split(stream);
         let mut framed_reader = FramedRead::new(reader, FrameCodec::new());
         let mut framed_writer = FramedWrite::new(writer, FrameCodec::new());
 

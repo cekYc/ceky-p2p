@@ -16,7 +16,7 @@ ceky-dht.workspace = true
 ceky-nat.workspace = true
 tokio.workspace = true
 clap.workspace = true
-serde.workspace = true
+serde = { workspace = true, features = ["derive"] }
 toml.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

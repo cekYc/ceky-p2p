@@ -27,6 +27,8 @@ use mimalloc::MiMalloc;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
+mod config;
+
 use anyhow::Result;
 use bytes::Bytes;
 use ceky_crypto::{Identity, NoiseHandshake, SecureSession};
@@ -44,34 +46,39 @@ use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
+use config::{ConfigFile, ResolvedConfig};
 
 /// cekyP2P node — zero-dependency P2P network.
 #[derive(Parser, Debug)]
 #[command(name = "ceky-node", version, about = "Decentralized P2P network node")]
-struct Cli {
+pub struct Cli {
+    /// Path to config file.
+    #[arg(short = 'c', long, default_value = "ceky.toml")]
+    config: PathBuf,
+
     /// TCP listen address.
-    #[arg(short = 't', long, default_value = "0.0.0.0:9741")]
-    tcp_addr: SocketAddr,
+    #[arg(short = 't', long)]
+    tcp_addr: Option<SocketAddr>,
 
     /// UDP listen address.
-    #[arg(short = 'u', long, default_value = "0.0.0.0:9742")]
-    udp_addr: SocketAddr,
+    #[arg(short = 'u', long)]
+    udp_addr: Option<SocketAddr>,
 
     /// Path to identity key file. Generated on first run.
-    #[arg(short = 'k', long, default_value = "identity.key")]
-    key_file: PathBuf,
+    #[arg(short = 'k', long)]
+    key_file: Option<PathBuf>,
 
     /// Seed node addresses to bootstrap from (comma-separated).
     #[arg(short = 's', long, value_delimiter = ',')]
-    seeds: Vec<SocketAddr>,
+    seeds: Option<Vec<SocketAddr>>,
 
     /// Maximum concurrent connections.
-    #[arg(long, default_value = "1024")]
-    max_connections: usize,
+    #[arg(long)]
+    max_connections: Option<usize>,
 
     /// Log level (trace, debug, info, warn, error).
-    #[arg(short = 'l', long, default_value = "info")]
-    log_level: String,
+    #[arg(short = 'l', long)]
+    log_level: Option<String>,
 
     /// Skip NAT detection at startup.
     #[arg(long, default_value = "false")]
@@ -111,6 +118,17 @@ fn print_banner() {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    // Parse config file if exists
+    let config_file = ConfigFile::load_from_file(&cli.config).unwrap_or_else(|e| {
+        println!("Warning: Failed to parse config file {}: {}", cli.config.display(), e);
+        ConfigFile::default()
+    });
+
+    let resolved_config = ResolvedConfig::merge(
+        cli.tcp_addr, cli.udp_addr, cli.key_file, cli.seeds,
+        cli.max_connections, cli.log_level, cli.skip_nat, config_file
+    );
+
     let (log_tx, log_rx) = crossbeam::channel::unbounded();
     let metrics = Arc::new(ceky_telemetry::GlobalMetrics::new());
 
@@ -118,7 +136,7 @@ fn main() -> Result<()> {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&cli.log_level)),
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&resolved_config.log_level)),
         )
         .with(ceky_telemetry::TuiLoggerLayer::new(log_tx))
         .init();
@@ -138,19 +156,19 @@ fn main() -> Result<()> {
         .build()?;
 
     let tui_metrics = Arc::clone(&metrics);
-    rt.block_on(async move { run_node(cli, tui_metrics, log_rx).await })
+    rt.block_on(async move { run_node(resolved_config, tui_metrics, log_rx).await })
 }
 
-async fn run_node(cli: Cli, metrics: Arc<ceky_telemetry::GlobalMetrics>, log_rx: crossbeam::channel::Receiver<ceky_telemetry::LogMessage>) -> Result<()> {
+async fn run_node(config: ResolvedConfig, metrics: Arc<ceky_telemetry::GlobalMetrics>, log_rx: crossbeam::channel::Receiver<ceky_telemetry::LogMessage>) -> Result<()> {
     // --- Identity ---
-    let identity = if cli.key_file.exists() {
-        info!(path = %cli.key_file.display(), "loading existing identity");
-        Identity::load_from_file(&cli.key_file)?
+    let identity = if config.key_file.exists() {
+        info!(path = %config.key_file.display(), "loading existing identity");
+        Identity::load_from_file(&config.key_file)?
     } else {
         info!("generating new identity");
         let id = Identity::generate();
-        id.save_to_file(&cli.key_file)?;
-        info!(path = %cli.key_file.display(), "identity saved");
+        id.save_to_file(&config.key_file)?;
+        info!(path = %config.key_file.display(), "identity saved");
         id
     };
 
@@ -159,7 +177,7 @@ async fn run_node(cli: Cli, metrics: Arc<ceky_telemetry::GlobalMetrics>, log_rx:
 
     // --- Connection Pool ---
     let pool = Arc::new(ConnectionPool::new(
-        cli.max_connections,
+        config.max_connections,
         ceky_transport::connection::ConnectionConfig::default(),
     ));
 
@@ -167,20 +185,20 @@ async fn run_node(cli: Cli, metrics: Arc<ceky_telemetry::GlobalMetrics>, log_rx:
     let (tcp_event_tx, mut tcp_event_rx) = event_channel();
     let (udp_event_tx, mut _udp_event_rx) = event_channel();
 
-    let tcp_transport = TcpTransport::bind(cli.tcp_addr, pool.clone(), tcp_event_tx).await?;
+    let tcp_transport = TcpTransport::bind(config.tcp_addr, pool.clone(), tcp_event_tx).await?;
     let tcp_addr = tcp_transport.start_listening().await?;
     info!(addr = %tcp_addr, "TCP transport ready");
 
-    let udp_transport = UdpTransport::bind(cli.udp_addr, udp_event_tx).await?;
+    let udp_transport = UdpTransport::bind(config.udp_addr, udp_event_tx).await?;
     let udp_addr = udp_transport.local_addr()?;
     udp_transport.start_receiving();
     info!(addr = %udp_addr, "UDP transport ready");
 
     // --- NAT Detection ---
-    if !cli.skip_nat {
+    if !config.skip_nat {
         info!("detecting NAT type...");
         let nat_detector = NatDetector::new();
-        match nat_detector.detect(udp_transport.socket()).await {
+        match nat_detector.detect(udp_transport.inner_socket()).await {
             Ok(nat_info) => {
                 info!(
                     nat_type = %nat_info.nat_type,
@@ -261,9 +279,9 @@ async fn run_node(cli: Cli, metrics: Arc<ceky_telemetry::GlobalMetrics>, log_rx:
     let mut peer_states: HashMap<SocketAddr, PeerState> = HashMap::new();
 
     // --- Bootstrap ---
-    if !cli.seeds.is_empty() {
-        info!(seeds = cli.seeds.len(), "connecting to seed nodes...");
-        for seed_addr in &cli.seeds {
+    if !config.seeds.is_empty() {
+        info!(seeds = config.seeds.len(), "connecting to seed nodes...");
+        for seed_addr in &config.seeds {
             match tcp_transport.connect(*seed_addr).await {
                 Ok(()) => {
                     info!(seed = %seed_addr, "connected to seed (TCP), starting handshake");

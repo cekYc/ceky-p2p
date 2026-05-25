@@ -72,6 +72,21 @@ No libp2p. No QUIC wrappers. Every byte on the wire is accounted for.
 - **Connection state machine** — Connecting → Established → Closing → Closed
 - **Full byte accounting** — per-connection send/recv counters
 
+### 📂 Zero-Copy File Transfer (`ceky-transfer`)
+- **Memory-Mapped I/O** — `memmap2` for zero-copy disk reads via kernel page cache
+- **Merkle Tree Chunking** — files split into 256KB chunks, validated via Merkle roots
+- **Resume Capability** — bitmap-driven state tracking to seamlessly resume broken transfers
+- **Backpressure & Credits** — dynamic sliding window (16 chunks) to prevent memory exhaustion
+
+### 📊 Telemetry & TUI (`ceky-telemetry`)
+- **Lock-Free Metrics** — `AtomicUsize` global counters (no Mutex bottlenecks)
+- **Async Logging** — `crossbeam::channel` for non-blocking log ingestion
+- **Terminal UI (TUI)** — `ratatui` + `crossterm` providing real-time 60FPS network observability
+
+### ⚙️ Config & Chaos Engineering
+- **Hierarchical Config** — zero-dependency TOML configuration (`ceky.toml`) overriding defaults
+- **Chaos Middleware** — feature-gated (`--features chaos`) TCP/UDP stream wrappers injecting latency, packet loss, and corruption for network stress testing
+
 ### ⚡ Performance
 - **mimalloc** allocator support (opt-in via `--features custom-allocator`)
 - **Lock-free concurrency** — DashMap, atomic counters, crossbeam
@@ -124,6 +139,20 @@ cekyP2P/
 │   │       ├── hole_punch.rs   # HolePuncher, UDP punch protocol
 │   │       └── relay.rs        # RelayService, session management
 │   │
+│   ├── ceky-transfer/         # File transfer & chunking
+│   │   └── src/
+│   │       ├── lib.rs          # Module exports
+│   │       ├── manager.rs      # TransferManager, chunk scheduling
+│   │       ├── merkle.rs       # Merkle tree & SHA-256 chunk hashing
+│   │       └── state.rs        # Memory-mapped I/O & bitmap tracking
+│   │
+│   ├── ceky-telemetry/        # TUI & lock-free metrics
+│   │   └── src/
+│   │       ├── lib.rs          # Module exports
+│   │       ├── metrics.rs      # GlobalMetrics (AtomicUsize)
+│   │       ├── logger.rs       # TuiLoggerLayer (crossbeam)
+│   │       └── ui.rs           # Ratatui Dashboard
+│   │
 │   └── ceky-node/             # Main binary
 │       └── src/
 │           └── main.rs         # CLI, node orchestration, event loop
@@ -150,10 +179,10 @@ cargo build --workspace
 ### Run
 
 ```bash
-# Start a node with default settings
+# Start a node with default settings (or uses ceky.toml if present)
 cargo run --bin ceky-node
 
-# Start with custom ports and seed nodes
+# Start with custom ports and seed nodes (overrides ceky.toml)
 cargo run --bin ceky-node -- \
   --tcp-addr 0.0.0.0:9741 \
   --udp-addr 0.0.0.0:9742 \
@@ -162,8 +191,8 @@ cargo run --bin ceky-node -- \
 # Enable debug logging
 cargo run --bin ceky-node -- --log-level debug
 
-# Skip NAT detection (for local testing)
-cargo run --bin ceky-node -- --skip-nat
+# Run with Chaos Engineering mode (packet loss & latency injection)
+cargo run --bin ceky-node --features ceky-transport/chaos
 ```
 
 ### Release Build (Optimized)

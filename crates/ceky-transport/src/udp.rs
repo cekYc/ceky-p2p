@@ -14,6 +14,12 @@ use bytes::BytesMut;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::UdpSocket;
+
+#[cfg(feature = "chaos")]
+use crate::chaos::ChaosSocket as TransportSocket;
+#[cfg(not(feature = "chaos"))]
+type TransportSocket = UdpSocket;
+
 use tokio_util::codec::{Decoder, Encoder};
 use tracing::{debug, error, trace, warn};
 
@@ -25,7 +31,7 @@ const MAX_DATAGRAM_SIZE: usize = 65535;
 /// UDP transport — stateless, frame-per-datagram communication.
 pub struct UdpTransport {
     /// The underlying UDP socket (shared via Arc for send/recv split).
-    socket: Arc<UdpSocket>,
+    socket: Arc<TransportSocket>,
     /// Event sender for notifying the upper layer.
     event_tx: EventSender,
 }
@@ -39,6 +45,9 @@ impl UdpTransport {
         let socket = UdpSocket::bind(listen_addr).await?;
         let actual_addr = socket.local_addr()?;
         debug!(addr = %actual_addr, "UDP transport bound");
+
+        #[cfg(feature = "chaos")]
+        let socket = TransportSocket::new(socket);
 
         Ok(Self {
             socket: Arc::new(socket),
@@ -128,9 +137,13 @@ impl UdpTransport {
         Ok(bytes_sent)
     }
 
-    /// Get a reference to the underlying socket (for NAT traversal).
-    pub fn socket(&self) -> &Arc<UdpSocket> {
-        &self.socket
+    /// Get a reference to the underlying raw UdpSocket (for NAT traversal).
+    pub fn inner_socket(&self) -> &UdpSocket {
+        #[cfg(feature = "chaos")]
+        return self.socket.inner();
+
+        #[cfg(not(feature = "chaos"))]
+        return &self.socket;
     }
 }
 
