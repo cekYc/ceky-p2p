@@ -30,6 +30,16 @@ crossbeam.workspace = true
 tokio-util.workspace = true
 hex = "0.4.3"
 
+# API dependencies
+axum = { version = "0.7.5", features = ["ws", "macros"] }
+tower-http = { version = "0.5.2", features = ["auth", "cors", "trace"] }
+serde_json = "1.0.117"
+
+[dev-dependencies]
+tempfile = "3.10.1"
+reqwest = { version = "0.12.5", features = ["json"] }
+tokio-tungstenite = "0.23.1"
+
 [features]
 default = []
 # Enable mimalloc allocator (requires C compiler — recommended for Linux production)

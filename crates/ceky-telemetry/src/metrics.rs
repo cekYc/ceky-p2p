@@ -3,7 +3,7 @@
 use std::sync::atomic::AtomicUsize;
 use std::sync::RwLock;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize)]
 pub struct TransferProgress {
     pub transfer_id: String,
     pub file_name: String,

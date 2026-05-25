@@ -23,10 +23,17 @@ pub struct NodeInfoConfig {
 }
 
 #[derive(Deserialize, Debug, Default)]
+pub struct ApiConfig {
+    pub port: Option<u16>,
+    pub key: Option<String>,
+}
+
+#[derive(Deserialize, Debug, Default)]
 pub struct ConfigFile {
     pub network: Option<NetworkConfig>,
     pub bootstrap: Option<BootstrapConfig>,
     pub node: Option<NodeInfoConfig>,
+    pub api: Option<ApiConfig>,
 }
 
 impl ConfigFile {
@@ -51,15 +58,19 @@ pub struct ResolvedConfig {
     pub max_connections: usize,
     pub log_level: String,
     pub skip_nat: bool,
+    pub api_port: u16,
+    pub api_key: Option<String>,
+    pub daemon: bool,
 }
 
 impl ResolvedConfig {
     /// Merges CLI arguments over the TOML config file, falling back to defaults.
-    pub fn merge(cli_tcp: Option<SocketAddr>, cli_udp: Option<SocketAddr>, cli_key: Option<PathBuf>, cli_seeds: Option<Vec<SocketAddr>>, cli_max_conn: Option<usize>, cli_log: Option<String>, cli_skip_nat: bool, file: ConfigFile) -> Self {
+    pub fn merge(cli_tcp: Option<SocketAddr>, cli_udp: Option<SocketAddr>, cli_key: Option<PathBuf>, cli_seeds: Option<Vec<SocketAddr>>, cli_max_conn: Option<usize>, cli_log: Option<String>, cli_skip_nat: bool, cli_api_port: Option<u16>, cli_api_key: Option<String>, cli_daemon: bool, file: ConfigFile) -> Self {
         
         let network = file.network.unwrap_or_default();
         let bootstrap = file.bootstrap.unwrap_or_default();
         let node = file.node.unwrap_or_default();
+        let api = file.api.unwrap_or_default();
 
         let tcp_addr = cli_tcp
             .or(network.tcp_addr)
@@ -93,6 +104,9 @@ impl ResolvedConfig {
             network.skip_nat.unwrap_or(false)
         };
 
+        let api_port = cli_api_port.or(api.port).unwrap_or(9743);
+        let api_key = cli_api_key.or(api.key);
+
         Self {
             tcp_addr,
             udp_addr,
@@ -101,6 +115,9 @@ impl ResolvedConfig {
             max_connections,
             log_level,
             skip_nat,
+            api_port,
+            api_key,
+            daemon: cli_daemon,
         }
     }
 }

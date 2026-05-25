@@ -28,6 +28,7 @@ use mimalloc::MiMalloc;
 static GLOBAL: MiMalloc = MiMalloc;
 
 mod config;
+pub mod api;
 
 use anyhow::Result;
 use bytes::Bytes;
@@ -83,6 +84,18 @@ pub struct Cli {
     /// Skip NAT detection at startup.
     #[arg(long, default_value = "false")]
     skip_nat: bool,
+
+    /// API server port (Sidecar mode).
+    #[arg(long)]
+    api_port: Option<u16>,
+
+    /// API token for authentication.
+    #[arg(long)]
+    api_key: Option<String>,
+
+    /// Run as a background daemon without TUI.
+    #[arg(long, default_value = "false")]
+    daemon: bool,
 }
 
 
@@ -107,21 +120,38 @@ fn main() -> Result<()> {
     });
 
     let resolved_config = ResolvedConfig::merge(
-        cli.tcp_addr, cli.udp_addr, cli.key_file, cli.seeds,
-        cli.max_connections, cli.log_level, cli.skip_nat, config_file
+        cli.tcp_addr,
+        cli.udp_addr,
+        cli.key_file,
+        cli.seeds,
+        cli.max_connections,
+        cli.log_level,
+        cli.skip_nat,
+        cli.api_port,
+        cli.api_key,
+        cli.daemon,
+        config_file,
     );
 
     let (log_tx, log_rx) = crossbeam::channel::unbounded();
     let metrics = Arc::new(ceky_telemetry::GlobalMetrics::new());
 
     use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&resolved_config.log_level)),
-        )
-        .with(ceky_telemetry::TuiLoggerLayer::new(log_tx))
-        .init();
+    
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&resolved_config.log_level));
+
+    if resolved_config.daemon {
+        tracing_subscriber::registry()
+            .with(env_filter)
+            .with(tracing_subscriber::fmt::layer())
+            .init();
+    } else {
+        tracing_subscriber::registry()
+            .with(env_filter)
+            .with(ceky_telemetry::TuiLoggerLayer::new(log_tx))
+            .init();
+    }
 
     info!("ceky-node v{}", env!("CARGO_PKG_VERSION"));
     info!("protocol magic: 0x{:04X}", MAGIC);
@@ -251,8 +281,43 @@ async fn run_node(config: ResolvedConfig, metrics: Arc<ceky_telemetry::GlobalMet
     });
 
     let tui_metrics = Arc::clone(&metrics);
-    tokio::task::spawn_blocking(move || {
-        let _ = ceky_telemetry::run_tui(tui_metrics, log_rx, ui_shutdown);
+    if !config.daemon {
+        tokio::task::spawn_blocking(move || {
+            let _ = ceky_telemetry::run_tui(tui_metrics, log_rx, ui_shutdown);
+        });
+    } else {
+        info!("Running in daemon mode. TUI is disabled.");
+        tokio::spawn(async move {
+            // Drain the unused log channel
+            while let Ok(_) = log_rx.recv() {}
+        });
+    }
+
+    // --- API Task (Sidecar) ---
+    let (api_command_tx, mut api_command_rx) = mpsc::unbounded_channel::<api::ApiCommand>();
+    let (api_event_tx, _api_event_rx) = tokio::sync::broadcast::channel(100);
+
+    let api_state = Arc::new(api::ApiState {
+        metrics: Arc::clone(&metrics),
+        identity: Arc::clone(&identity),
+        tcp_addr: config.tcp_addr,
+        udp_addr: config.udp_addr,
+        api_key: config.api_key.clone(),
+        command_tx: api_command_tx,
+        event_tx: api_event_tx.clone(),
+    });
+
+    let api_port = config.api_port;
+    let api_shutdown = shutdown_token.clone();
+    tokio::spawn(async move {
+        tokio::select! {
+            res = api::start_api_server(api_port, api_state) => {
+                if let Err(e) = res {
+                    tracing::error!("API server failed: {}", e);
+                }
+            }
+            _ = api_shutdown.cancelled() => {}
+        }
     });
 
     // --- Control Plane Task ---
@@ -296,10 +361,47 @@ async fn run_node(config: ResolvedConfig, metrics: Arc<ceky_telemetry::GlobalMet
                 break;
             }
 
+            // Handle API Commands
+            cmd = api_command_rx.recv() => {
+                if let Some(command) = cmd {
+                    match command {
+                        api::ApiCommand::Connect(addr) => {
+                            info!(target = %addr, "API requested connection");
+                            if let Err(e) = tcp_transport.connect(addr).await {
+                                warn!("API connection request to {} failed: {}", addr, e);
+                            } else {
+                                let mut handshake = NoiseHandshake::new_initiator(Arc::clone(&identity));
+                                if let Ok(msg1) = handshake.create_message1() {
+                                    let frame = Frame::new(MessageType::Handshake, Flags::empty(), 0, bytes::Bytes::from(msg1));
+                                    if let Err(e) = tcp_transport.send_to(&addr, frame) {
+                                        warn!("API failed to send MSG1 to {}: {}", addr, e);
+                                    } else {
+                                        peer_states.insert(addr, PeerState::InitiatorWaitMsg2 { handshake });
+                                    }
+                                }
+                            }
+                        }
+                        api::ApiCommand::SendFile { target, file_path } => {
+                            info!(target = %target, file = ?file_path, "API requested file transfer");
+                            if peer_states.contains_key(&target) {
+                                // Defaulting to 1000 chunks credit for now
+                                let _ = transfer_manager.offer_file(target, &file_path, 1000);
+                            } else {
+                                warn!("Cannot send file, not connected to peer: {}", target);
+                            }
+                        }
+                    }
+                }
+            }
+
             // Handle transport events
             event = tcp_event_rx.recv() => {
                 match event {
                     Some(ceky_transport::TransportEvent::Connected { peer_addr }) => {
+                        let _ = api_event_tx.send(serde_json::json!({
+                            "event": "peer_connected",
+                            "peer": peer_addr.to_string()
+                        }));
                         // Check if it's already in peer_states (meaning we initiated it)
                         if !peer_states.contains_key(&peer_addr) {
                             debug!(peer = %peer_addr, "inbound connection accepted, waiting for handshake MSG1");
@@ -308,6 +410,11 @@ async fn run_node(config: ResolvedConfig, metrics: Arc<ceky_telemetry::GlobalMet
                         }
                     }
                     Some(ceky_transport::TransportEvent::Disconnected { peer_addr, reason }) => {
+                        let _ = api_event_tx.send(serde_json::json!({
+                            "event": "peer_disconnected",
+                            "peer": peer_addr.to_string(),
+                            "reason": reason.to_string()
+                        }));
                         peer_states.remove(&peer_addr);
                         info!(peer = %peer_addr, reason = %reason, "peer disconnected");
                     }
@@ -382,6 +489,12 @@ async fn run_node(config: ResolvedConfig, metrics: Arc<ceky_telemetry::GlobalMet
                                                 }
                                                 MessageType::FileOffer => {
                                                     if let Ok(offer) = FileOffer::decode(&data) {
+                                                        let _ = api_event_tx.send(serde_json::json!({
+                                                            "event": "file_offer_received",
+                                                            "peer": peer_addr.to_string(),
+                                                            "file_name": offer.file_name.clone(),
+                                                            "total_size": offer.file_size
+                                                        }));
                                                         let _ = transfer_manager.handle_offer(peer_addr, offer);
                                                     }
                                                 }
