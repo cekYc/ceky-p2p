@@ -91,7 +91,7 @@ pub async fn start_node(
     }
 
     // --- DHT Routing Table ---
-    let routing_table = RoutingTable::new(identity.peer_id.clone());
+    let mut routing_table = RoutingTable::new(identity.peer_id.clone());
     info!("DHT routing table initialized");
 
     // --- Transfer Manager ---
@@ -187,6 +187,7 @@ pub async fn start_node(
 
     // --- Control Plane Task ---
     let mut peer_states: HashMap<SocketAddr, PeerState> = HashMap::new();
+    let mut pending_dht_connects: std::collections::HashSet<ceky_crypto::PeerId> = std::collections::HashSet::new();
 
     // --- Bootstrap ---
     if !config.seeds.is_empty() {
@@ -218,6 +219,7 @@ pub async fn start_node(
     // --- Event Loop ---
     let event_loop_shutdown = shutdown_token.clone();
     let event_loop_api_tx = api_event_tx.clone();
+    let event_loop_api_command_tx = api_command_tx.clone();
 
     tokio::spawn(async move {
         loop {
@@ -246,6 +248,43 @@ pub async fn start_node(
                                     }
                                 }
                             }
+                            api::ApiCommand::ConnectPeerId(peer_id_hex) => {
+                                info!(target = %peer_id_hex, "API requested connection by PeerId");
+                                if let Ok(bytes) = hex::decode(&peer_id_hex) {
+                                    if bytes.len() == 32 {
+                                        let mut id = [0u8; 32];
+                                        id.copy_from_slice(&bytes);
+                                        let target_peer_id = ceky_crypto::PeerId::from_bytes(id);
+                                        
+                                        // First, check if we already know this peer in our routing table
+                                        if let Some(peer_info) = routing_table.get(&target_peer_id) {
+                                            let addr = peer_info.addr;
+                                            info!(target = %target_peer_id, addr = %addr, "Peer already in routing table, connecting directly...");
+                                            let _ = event_loop_api_command_tx.send(api::ApiCommand::Connect(addr));
+                                            continue;
+                                        }
+
+                                        // Otherwise, simplified DHT lookup MVP: ask all currently connected peers
+                                        let find_node = ceky_protocol::dht::FindNode { target: *target_peer_id.as_bytes() };
+                                        let frame = Frame::new(MessageType::FindNode, Flags::empty(), 0, find_node.encode());
+                                        
+                                        for (addr, state) in peer_states.iter_mut() {
+                                            if let PeerState::Secure { session } = state {
+                                                if let Ok((enc_nonce, ciphertext)) = session.encrypt(&frame.payload) {
+                                                    let enc_frame = Frame::new(MessageType::FindNode, Flags::empty().with_encrypted(), enc_nonce, bytes::Bytes::from(ciphertext));
+                                                    let _ = tcp_transport.send_to(addr, enc_frame);
+                                                }
+                                            }
+                                        }
+                                        // Also add to our pending DHT lookups list
+                                        pending_dht_connects.insert(target_peer_id);
+                                    } else {
+                                        warn!("Invalid PeerId length: {}", bytes.len());
+                                    }
+                                } else {
+                                    warn!("Invalid PeerId hex: {}", peer_id_hex);
+                                }
+                            }
                             api::ApiCommand::SendFile { target, file_path } => {
                                 info!(target = %target, file = ?file_path, "API requested file transfer");
                                 if peer_states.contains_key(&target) {
@@ -257,14 +296,37 @@ pub async fn start_node(
                             api::ApiCommand::SendMessage { target, message } => {
                                 info!(target = %target, "API requested message send");
                                 if let Some(PeerState::Secure { session }) = peer_states.get_mut(&target) {
-                                    if let Ok((enc_nonce, ciphertext)) = session.encrypt(message.as_bytes()) {
+                                    let data = message.into_bytes();
+                                    if let Ok((enc_nonce, ciphertext)) = session.encrypt(&data) {
                                         let frame = Frame::new(MessageType::Data, Flags::empty().with_encrypted(), enc_nonce, bytes::Bytes::from(ciphertext));
-                                        if let Err(e) = tcp_transport.send_to(&target, frame) {
-                                            warn!("Failed to send message to {}: {}", target, e);
-                                        }
+                                        let _ = tcp_transport.send_to(&target, frame);
+                                        let _ = metrics.tx_bytes.fetch_add(data.len(), std::sync::atomic::Ordering::Relaxed);
                                     }
                                 } else {
-                                    warn!("Cannot send message, secure session not ready for {}", target);
+                                    warn!(target = %target, "Cannot send message to non-secure peer");
+                                }
+                            }
+                            api::ApiCommand::SendMessagePeerId { target, message } => {
+                                if let Ok(bytes) = hex::decode(&target) {
+                                    let mut id_bytes = [0u8; 32];
+                                    id_bytes.copy_from_slice(&bytes);
+                                    let target_peer_id = ceky_crypto::PeerId::from_bytes(id_bytes);
+                                    
+                                    if let Some(peer_info) = routing_table.get(&target_peer_id) {
+                                        let addr = peer_info.addr;
+                                        if let Some(PeerState::Secure { session }) = peer_states.get_mut(&addr) {
+                                            let data = message.into_bytes();
+                                            if let Ok((enc_nonce, ciphertext)) = session.encrypt(&data) {
+                                                let frame = Frame::new(MessageType::Data, Flags::empty().with_encrypted(), enc_nonce, bytes::Bytes::from(ciphertext));
+                                                let _ = tcp_transport.send_to(&addr, frame);
+                                                let _ = metrics.tx_bytes.fetch_add(data.len(), std::sync::atomic::Ordering::Relaxed);
+                                            }
+                                        } else {
+                                            warn!(target = %target, "Peer found in routing table but no secure session active");
+                                        }
+                                    } else {
+                                        warn!(target = %target, "Peer not found in routing table. Consider connecting first.");
+                                    }
                                 }
                             }
                         }
@@ -304,6 +366,12 @@ pub async fn start_node(
                                                     let _ = tcp_transport.send_to(&peer_addr, f);
                                                     if let Ok(keys) = handshake.into_session_keys() {
                                                         if let Ok(session) = SecureSession::from_keys(keys) {
+                                                            let mut payload = bytes::BytesMut::with_capacity(32);
+                                                            payload.extend_from_slice(identity.peer_id.as_bytes());
+                                                            if let Ok((enc_nonce, ciphertext)) = session.encrypt(&payload) {
+                                                                let frame = Frame::new(MessageType::Ping, Flags::empty().with_encrypted(), enc_nonce, bytes::Bytes::from(ciphertext));
+                                                                let _ = tcp_transport.send_to(&peer_addr, frame);
+                                                            }
                                                             peer_states.insert(peer_addr, PeerState::Secure { session });
                                                             info!(peer = %peer_addr, "handshake complete (initiator) - session secure");
                                                         }
@@ -327,6 +395,12 @@ pub async fn start_node(
                                                 Ok(()) => {
                                                     if let Ok(keys) = handshake.into_session_keys() {
                                                         if let Ok(session) = SecureSession::from_keys(keys) {
+                                                            let mut payload = bytes::BytesMut::with_capacity(32);
+                                                            payload.extend_from_slice(identity.peer_id.as_bytes());
+                                                            if let Ok((enc_nonce, ciphertext)) = session.encrypt(&payload) {
+                                                                let frame = Frame::new(MessageType::Ping, Flags::empty().with_encrypted(), enc_nonce, bytes::Bytes::from(ciphertext));
+                                                                let _ = tcp_transport.send_to(&peer_addr, frame);
+                                                            }
                                                             peer_states.insert(peer_addr, PeerState::Secure { session });
                                                             info!(peer = %peer_addr, "handshake complete (responder) - session secure");
                                                         }
@@ -398,6 +472,71 @@ pub async fn start_node(
                                                                 "peer": peer_addr.to_string(),
                                                                 "message": msg_str
                                                             }));
+                                                        }
+                                                    }
+                                                    MessageType::Ping => {
+                                                        if data.len() == 32 {
+                                                            let mut id_bytes = [0u8; 32];
+                                                            id_bytes.copy_from_slice(&data);
+                                                            let remote_peer_id = ceky_crypto::PeerId::from_bytes(id_bytes);
+                                                            debug!(peer = %peer_addr, peer_id = %remote_peer_id, "Received Ping with PeerId");
+                                                            let _ = routing_table.insert(remote_peer_id, peer_addr);
+                                                            
+                                                            // Reply with Pong
+                                                            if let Some(PeerState::Secure { session }) = peer_states.get_mut(&peer_addr) {
+                                                                let mut payload = bytes::BytesMut::with_capacity(32);
+                                                                payload.extend_from_slice(identity.peer_id.as_bytes());
+                                                                if let Ok((enc_nonce, ciphertext)) = session.encrypt(&payload) {
+                                                                    let frame = Frame::new(MessageType::Pong, Flags::empty().with_encrypted(), enc_nonce, bytes::Bytes::from(ciphertext));
+                                                                    let _ = tcp_transport.send_to(&peer_addr, frame);
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                    MessageType::Pong => {
+                                                        if data.len() == 32 {
+                                                            let mut id_bytes = [0u8; 32];
+                                                            id_bytes.copy_from_slice(&data);
+                                                            let remote_peer_id = ceky_crypto::PeerId::from_bytes(id_bytes);
+                                                            debug!(peer = %peer_addr, peer_id = %remote_peer_id, "Received Pong with PeerId");
+                                                            let _ = routing_table.insert(remote_peer_id, peer_addr);
+                                                        }
+                                                    }
+                                                    MessageType::FindNode => {
+                                                        if let Ok(req) = ceky_protocol::dht::FindNode::decode(&data) {
+                                                            let target_peer_id = ceky_crypto::PeerId::from_bytes(req.target);
+                                                            debug!(target = %target_peer_id, "Received FindNode request");
+                                                            // Let's query our local routing table
+                                                            let mut resp_peers = Vec::new();
+                                                            if target_peer_id == identity.peer_id {
+                                                                resp_peers.push((*identity.peer_id.as_bytes(), config.tcp_addr));
+                                                            } else {
+                                                                let closest_peers = routing_table.find_closest(&target_peer_id, 20);
+                                                                for p in closest_peers {
+                                                                    resp_peers.push((*p.peer_id.as_bytes(), p.addr));
+                                                                }
+                                                            }
+                                                            let resp = ceky_protocol::dht::FindNodeResp { peers: resp_peers };
+                                                            if let Some(PeerState::Secure { session }) = peer_states.get_mut(&peer_addr) {
+                                                                if let Ok((enc_nonce, ciphertext)) = session.encrypt(&resp.encode()) {
+                                                                    let frame = Frame::new(MessageType::FindNodeResp, Flags::empty().with_encrypted(), enc_nonce, bytes::Bytes::from(ciphertext));
+                                                                    let _ = tcp_transport.send_to(&peer_addr, frame);
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                    MessageType::FindNodeResp => {
+                                                        if let Ok(resp) = ceky_protocol::dht::FindNodeResp::decode(&data) {
+                                                            debug!(count = resp.peers.len(), "Received FindNodeResp");
+                                                            for (id_bytes, addr) in resp.peers {
+                                                                let id = ceky_crypto::PeerId::from_bytes(id_bytes);
+                                                                let _ = routing_table.insert(id, addr);
+                                                                if pending_dht_connects.contains(&id) {
+                                                                    info!(target = %id, addr = %addr, "Found target via DHT, connecting...");
+                                                                    pending_dht_connects.remove(&id);
+                                                                    let _ = event_loop_api_command_tx.send(api::ApiCommand::Connect(addr));
+                                                                }
+                                                            }
                                                         }
                                                     }
                                                     _ => {

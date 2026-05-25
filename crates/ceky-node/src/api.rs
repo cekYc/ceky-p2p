@@ -22,12 +22,17 @@ use ceky_crypto::Identity;
 #[derive(Debug)]
 pub enum ApiCommand {
     Connect(SocketAddr),
+    ConnectPeerId(String),
     SendFile {
         target: SocketAddr,
         file_path: PathBuf,
     },
     SendMessage {
         target: SocketAddr,
+        message: String,
+    },
+    SendMessagePeerId {
+        target: String,
         message: String,
     },
 }

@@ -17,6 +17,7 @@ pub mod codec;
 pub mod error;
 pub mod transfer;
 pub mod types;
+pub mod dht;
 
 pub use codec::FrameCodec;
 pub use error::ProtocolError;
@@ -25,6 +26,7 @@ pub use transfer::{
 	FileAccept, FileCancel, FileCancelReason, FileChunk, FileChunkAck, FileComplete, FileOffer,
 	FileReject, FileRejectReason, TransferError, TransferId,
 };
+pub use dht::{FindNode, FindNodeResp, DhtError};
 pub use types::{Flags, Frame, FrameHeader, MessageType};
 
 /// Protocol magic bytes: 0xCE4B ("CEKY" tribute)
