@@ -6,10 +6,10 @@
 use crate::DhtError;
 use ceky_crypto::PeerId;
 use dashmap::DashMap;
-use redb::{MultimapTableDefinition, TableDefinition, ReadableMultimapTable, ReadableTable};
+use redb::{MultimapTableDefinition, TableDefinition, ReadableMultimapTable};
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tracing::{debug, error, warn};
+use tracing::{debug, error};
 
 /// A stored key-value pair with metadata, adapted for persistence.
 #[derive(Debug, Clone)]
@@ -209,7 +209,7 @@ impl PersistentStore {
                     if let Ok(write_txn) = db_handle.begin_write() {
                         let mut keys_to_remove = Vec::new();
 
-                        if let (Ok(data_table), Ok(expire_table)) = (
+                        if let (Ok(_data_table), Ok(expire_table)) = (
                             write_txn.open_table(DHT_DATA),
                             write_txn.open_multimap_table(EXPIRE_INDEX),
                         ) {

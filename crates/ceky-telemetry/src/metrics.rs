@@ -1,6 +1,6 @@
 //! Lock-free telemetry metrics.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::AtomicUsize;
 use std::sync::RwLock;
 
 #[derive(Clone, Debug)]

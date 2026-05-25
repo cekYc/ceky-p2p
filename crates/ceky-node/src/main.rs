@@ -43,7 +43,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, BufReader};
+
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 use config::{ConfigFile, ResolvedConfig};
@@ -85,15 +85,7 @@ pub struct Cli {
     skip_nat: bool,
 }
 
-/// Node control plane commands.
-#[derive(Debug)]
-enum Command {
-    Connect(SocketAddr),
-    FindNode(String),
-    Transfer(SocketAddr, PathBuf),
-    Stats,
-    Exit,
-}
+
 
 /// State of a peer connection (Noise handshake and secure session).
 enum PeerState {
@@ -103,17 +95,7 @@ enum PeerState {
     Secure { session: SecureSession },
 }
 
-/// Print the startup banner.
-fn print_banner() {
-    println!(r#"
-     ██████╗███████╗██╗  ██╗██╗   ██╗██████╗ ██████╗ ██████╗
-    ██╔════╝██╔════╝██║ ██╔╝╚██╗ ██╔╝██╔══██╗╚════██╗██╔══██╗
-    ██║     █████╗  █████╔╝  ╚████╔╝ ██████╔╝ █████╔╝██████╔╝
-    ██║     ██╔══╝  ██╔═██╗   ╚██╔╝  ██╔═══╝ ██╔═══╝ ██╔═══╝
-    ╚██████╗███████╗██║  ██╗   ██║   ██║     ███████╗██║
-     ╚═════╝╚══════╝╚═╝  ╚═╝   ╚═╝   ╚═╝     ╚══════╝╚═╝
-    "#);
-}
+
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -274,7 +256,6 @@ async fn run_node(config: ResolvedConfig, metrics: Arc<ceky_telemetry::GlobalMet
     });
 
     // --- Control Plane Task ---
-    let (cmd_tx, mut cmd_rx) = mpsc::unbounded_channel::<Command>();
 
     let mut peer_states: HashMap<SocketAddr, PeerState> = HashMap::new();
 

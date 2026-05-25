@@ -2,7 +2,6 @@
 
 use crate::merkle::{calculate_file_hash, hash_chunk};
 use crate::state::{ReceivingState, SendingState, TransferState};
-use ceky_crypto::PeerId;
 use ceky_protocol::transfer::{
     bitmap_is_missing, bitmap_len, bitmap_set_missing, compute_total_chunks, ChunkAckStatus,
     FileAccept, FileChunk, FileChunkAck, FileOffer, TransferId, FILE_HASH_LEN,
@@ -16,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 #[derive(Debug, Error)]
 pub enum TransferError {

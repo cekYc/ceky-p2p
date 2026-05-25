@@ -9,11 +9,9 @@
 //! The actual network I/O is abstracted behind the `DhtRpc` trait.
 
 use crate::routing::{K, ALPHA};
-use crate::DhtError;
 use ceky_crypto::PeerId;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::net::SocketAddr;
-use std::time::Duration;
 
 /// Result of a find_node operation.
 #[derive(Debug)]
